@@ -1,5 +1,5 @@
 CXX ?= g++
-CXXFLAGS ?= -std=c++20 -O2 -pipe -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+CXXFLAGS ?= -std=c++20 -O3 -march=native -pipe -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
 LDFLAGS ?=
 
 TARGET := kvserv
@@ -13,7 +13,7 @@ OBJS := $(SRCS:$(SRCDIR)/%.cpp=$(OBJDIR)/%.o)
 
 all: $(TARGET)
 
-debug: CXXFLAGS := $(filter-out -O2,$(CXXFLAGS))
+debug: CXXFLAGS := $(filter-out -O3,$(CXXFLAGS))
 debug: CXXFLAGS += -g -O0
 debug: clean $(TARGET)
 
