@@ -2,7 +2,7 @@
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
-
+#include <iostream>
 #include <memory>
 #include <unordered_map>
 
@@ -14,6 +14,7 @@
 #include "util/error.hpp"
 
 int main() {
+  std::cout << "Redis Started \n";
   uint16_t port = 9000;
 
   int listen_fd = net::create_listen_socket(port);

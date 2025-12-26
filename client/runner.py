@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 # Hardcoded client/server settings (no CLI flags needed).
-HOST = "192.168.37.1"
+HOST = "192.168.37.128"
 PORT = 9000
 TOTAL_OPS = 200_000
 CONCURRENCY = 50
@@ -121,7 +121,11 @@ class WorkerResult:
 
 
 def worker_thread(cfg: WorkerConfig, result: WorkerResult):
-  sock = socket.create_connection((HOST, PORT))
+  try:
+    sock = socket.create_connection((HOST, PORT))
+  except OSError:
+    result.errors += 1
+    return
   pending: List[float] = []
   sent = 0
   completed = 0
@@ -188,6 +192,9 @@ def run_load(args):
       pipeline=PIPELINE_DEPTH,
   )
 
+  if not check_server():
+    return
+
   threads = []
   results = [WorkerResult() for _ in range(CONCURRENCY)]
   start = time.perf_counter()
@@ -212,6 +219,14 @@ def run_load(args):
     for label, val in [("p50", pct(latencies, 50)), ("p95", pct(latencies, 95)), ("p99", pct(latencies, 99))]:
       if val is not None:
         print(f"{label}: {val:.2f} ms")
+
+def check_server() -> bool:
+  try:
+    with socket.create_connection((HOST, PORT), timeout=2):
+      return True
+  except OSError as exc:
+    print(f"Cannot connect to server at {HOST}:{PORT}: {exc}")
+    return False
 
 def write_latencies(latencies: List[float]) -> None:
   root = Path(__file__).resolve().parent.parent
