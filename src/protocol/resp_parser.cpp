@@ -1,25 +1,44 @@
 #include "resp_parser.hpp"
 
-#include <charconv>
 #include <cstddef>
+#include <limits>
 
 namespace resp {
 
 namespace {
-constexpr std::size_t invalid_pos = static_cast<std::size_t>(-1);
-}
+enum class ParseStatus { Ok, Incomplete, Error };
 
-std::size_t RespParser::find_terminator(const std::string& buffer, std::size_t from) {
-  auto pos = buffer.find("\r\n", from);
-  return pos == std::string::npos ? invalid_pos : pos;
-}
+ParseStatus parse_length(const std::string& buffer, std::size_t& cursor, std::size_t& out) {
+  std::size_t i = cursor;
+  if (i >= buffer.size()) {
+    return ParseStatus::Incomplete;
+  }
+  if (buffer[i] < '0' || buffer[i] > '9') {
+    return ParseStatus::Error;
+  }
 
-bool RespParser::parse_integer(std::string_view view, long long& out) {
-  const char* begin = view.data();
-  const char* end = begin + view.size();
-  auto [ptr, ec] = std::from_chars(begin, end, out);
-  return ec == std::errc() && ptr == end;
+  std::size_t value = 0;
+  while (i < buffer.size() && buffer[i] >= '0' && buffer[i] <= '9') {
+    std::size_t digit = static_cast<std::size_t>(buffer[i] - '0');
+    if (value > (std::numeric_limits<std::size_t>::max() - digit) / 10) {
+      return ParseStatus::Error;
+    }
+    value = value * 10 + digit;
+    ++i;
+  }
+
+  if (i + 1 >= buffer.size()) {
+    return ParseStatus::Incomplete;
+  }
+  if (buffer[i] != '\r' || buffer[i + 1] != '\n') {
+    return ParseStatus::Error;
+  }
+
+  cursor = i + 2;
+  out = value;
+  return ParseStatus::Ok;
 }
+}  // namespace
 
 bool RespParser::parse(std::string& buffer) {
   args.clear();
@@ -36,23 +55,19 @@ bool RespParser::parse(std::string& buffer) {
   }
   ++cursor;
 
-  const auto array_line_end = find_terminator(buffer, cursor);
-  if (array_line_end == invalid_pos) {
-    return false;  // incomplete
+  std::size_t array_len = 0;
+  ParseStatus status = parse_length(buffer, cursor, array_len);
+  if (status == ParseStatus::Incomplete) {
+    return false;
   }
-
-  long long array_len = 0;
-  if (!parse_integer(std::string_view(buffer.data() + cursor, array_line_end - cursor), array_len) 
-    || array_len < 0) {
-
+  if (status == ParseStatus::Error) {
     has_error = true;
     return false;
   }
 
-  cursor = array_line_end + 2;  // skip \r\n
-  args.reserve(static_cast<std::size_t>(array_len));
+  args.reserve(array_len);
 
-  for (long long i{}; i < array_len; ++i) {
+  for (std::size_t i = 0; i < array_len; ++i) {
     if (cursor >= buffer.size()) {
       args.clear();
       return false;  // incomplete
@@ -65,30 +80,26 @@ bool RespParser::parse(std::string& buffer) {
     }
     ++cursor;
 
-    const auto bulk_line_end = find_terminator(buffer, cursor);
-    if (bulk_line_end == invalid_pos) {
+    std::size_t bulk_len = 0;
+    status = parse_length(buffer, cursor, bulk_len);
+    if (status == ParseStatus::Incomplete) {
       args.clear();
-      return false;  // incomplete
+      return false;
     }
-
-    long long bulk_len = 0;
-    if (!parse_integer(std::string_view(buffer.data() + cursor, bulk_line_end - cursor), bulk_len) 
-      || bulk_len < 0) {
+    if (status == ParseStatus::Error) {
       has_error = true;
       args.clear();
       return false;
     }
 
-    cursor = bulk_line_end + 2;  // skip \r\n
-
-    const std::size_t need = static_cast<std::size_t>(bulk_len) + 2;  // data + \r\n
+    const std::size_t need = bulk_len + 2;  // data + \r\n
     if (cursor + need > buffer.size()) {
       args.clear();
       return false;  // incomplete
     }
 
-    args.emplace_back(buffer.data() + cursor, static_cast<std::size_t>(bulk_len));
-    cursor += static_cast<std::size_t>(bulk_len);
+    args.emplace_back(buffer.data() + cursor, bulk_len);
+    cursor += bulk_len;
 
     // Expect trailing \r\n
     if (buffer[cursor] != '\r' || buffer[cursor + 1] != '\n') {

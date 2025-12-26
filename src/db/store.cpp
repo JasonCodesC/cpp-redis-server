@@ -1,8 +1,12 @@
 #include "store.hpp"
 
+#include <utility>
+
 namespace db {
 
-std::optional<std::string_view> Store::get(const std::string& key) {
+Store::Store() : kv(&pool), expires(&pool) {}
+
+std::optional<std::string_view> Store::get(std::string_view key) {
   auto it = kv.find(key);
   if (it == kv.end()) {
     return std::nullopt;
@@ -20,58 +24,73 @@ std::optional<std::string_view> Store::get(const std::string& key) {
   return it->second;
 }
 
-void Store::set(const std::string& key, const std::string& value) {
-  kv[key] = value;
+void Store::set(std::string_view key, std::string_view value) {
+  std::pmr::string key_pmr(key, &pool);
+  std::pmr::string value_pmr(value, &pool);
+  kv.insert_or_assign(std::move(key_pmr), std::move(value_pmr));
   remove_expiration(key);
 }
 
-bool Store::del(const std::string& key) {
+bool Store::del(std::string_view key) {
   auto it = kv.find(key);
   if (it == kv.end()) {
     return false;
   }
   kv.erase(it);
-  expires.erase(key);
+  auto exp_it = expires.find(key);
+  if (exp_it != expires.end()) {
+    expires.erase(exp_it);
+  }
   return true;
 }
 
-bool Store::exists(const std::string& key) {
+bool Store::exists(std::string_view key) {
   auto it = kv.find(key);
   if (it == kv.end()) {
     return false;
   }
-  if (is_expired(key, util::now())) {
+  auto exp_it = expires.find(key);
+  if (exp_it == expires.end()) {
+    return true;
+  }
+  auto now = util::now();
+  if (exp_it->second <= now) {
     kv.erase(it);
-    expires.erase(key);
+    expires.erase(exp_it);
     return false;
   }
   return true;
 }
 
-bool Store::expire(const std::string& key, long long ttl_ms) {
+bool Store::expire(std::string_view key, long long ttl_ms) {
   auto it = kv.find(key);
   if (it == kv.end()) {
     return false;
   }
   auto deadline = util::now() + std::chrono::milliseconds(ttl_ms);
-  expires[key] = deadline;
+  auto exp_it = expires.find(key);
+  if (exp_it != expires.end()) {
+    exp_it->second = deadline;
+  } else {
+    expires.emplace(std::pmr::string(key, &pool), deadline);
+  }
   return true;
 }
 
-long long Store::ttl(const std::string& key) {
+long long Store::ttl(std::string_view key) {
   auto it = kv.find(key);
   if (it == kv.end()) {
-    return -2;
-  }
-  auto now = util::now();
-  if (is_expired(key, now)) {
-    kv.erase(it);
-    expires.erase(key);
     return -2;
   }
   auto exp_it = expires.find(key);
   if (exp_it == expires.end()) {
     return -1;
+  }
+  auto now = util::now();
+  if (exp_it->second <= now) {
+    kv.erase(it);
+    expires.erase(exp_it);
+    return -2;
   }
   auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(exp_it->second - now).count();
   return remaining < 0 ? 0 : remaining;
@@ -90,21 +109,11 @@ void Store::sweep_expired() {
   }
 }
 
-bool Store::is_expired(const std::string& key, util::TimePoint now) {
-  auto it = expires.find(key);
-  if (it == expires.end()) {
-    return false;
+void Store::remove_expiration(std::string_view key) {
+  auto exp_it = expires.find(key);
+  if (exp_it != expires.end()) {
+    expires.erase(exp_it);
   }
-  if (it->second <= now) {
-    kv.erase(key);
-    expires.erase(it);
-    return true;
-  }
-  return false;
-}
-
-void Store::remove_expiration(const std::string& key) {
-  expires.erase(key);
 }
 
 }  // namespace db

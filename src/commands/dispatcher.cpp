@@ -103,7 +103,7 @@ void Dispatcher::handle_set(const std::vector<std::string_view>& args, std::stri
     resp::append_error(out, "ERR wrong number of arguments for 'set'");
     return;
   }
-  store.set(std::string(args[1]), std::string(args[2]));
+  store.set(args[1], args[2]);
   resp::append_ok(out);
 }
 
@@ -112,7 +112,7 @@ void Dispatcher::handle_get(const std::vector<std::string_view>& args, std::stri
     resp::append_error(out, "ERR wrong number of arguments for 'get'");
     return;
   }
-  auto val = store.get(std::string(args[1]));
+  auto val = store.get(args[1]);
   resp::append_string(out, val);
 }
 
@@ -123,7 +123,7 @@ void Dispatcher::handle_del(const std::vector<std::string_view>& args, std::stri
   }
   long long removed = 0;
   for (std::size_t i = 1; i < args.size(); ++i) {
-    if (store.del(std::string(args[i]))) {
+    if (store.del(args[i])) {
       ++removed;
     }
   }
@@ -137,7 +137,7 @@ void Dispatcher::handle_exists(const std::vector<std::string_view>& args, std::s
   }
   long long count = 0;
   for (std::size_t i = 1; i < args.size(); ++i) {
-    if (store.exists(std::string(args[i]))) {
+    if (store.exists(args[i])) {
       ++count;
     }
   }
@@ -154,7 +154,7 @@ void Dispatcher::handle_expire(const std::vector<std::string_view>& args, std::s
     resp::append_error(out, "ERR invalid expire time");
     return;
   }
-  bool ok = store.expire(std::string(args[1]), ttl_ms);
+  bool ok = store.expire(args[1], ttl_ms);
   resp::append_integer(out, ok ? 1 : 0);
 }
 
@@ -163,7 +163,7 @@ void Dispatcher::handle_ttl(const std::vector<std::string_view>& args, std::stri
     resp::append_error(out, "ERR wrong number of arguments for 'ttl'");
     return;
   }
-  long long remaining = store.ttl(std::string(args[1]));
+  long long remaining = store.ttl(args[1]);
   resp::append_integer(out, remaining);
 }
 

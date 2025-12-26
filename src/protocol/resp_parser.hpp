@@ -16,9 +16,6 @@ namespace resp {
 // If error() is true, the buffer contained a protocol violation.
 
 class RespParser {
-  static std::size_t find_terminator(const std::string& buffer, std::size_t from);
-  static bool parse_integer(std::string_view view, long long& out);
-
   std::vector<std::string_view> args;
   std::size_t consumed{};
   bool has_error{false};
