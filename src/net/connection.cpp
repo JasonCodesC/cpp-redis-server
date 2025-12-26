@@ -8,23 +8,23 @@
 
 namespace net {
 
-Connection::Connection(int fd) : fd(fd) {}
+Connection::Connection(int fd) : fd_(fd) {}
 
 Connection::~Connection() {
   close();
 }
 
 void Connection::close() {
-  if (fd != -1) {
-    ::close(fd);
-    fd = -1;
+  if (fd_ != -1) {
+    ::close(fd_);
+    fd_ = -1;
   }
 }
 
 bool Connection::read_from_socket() {
   char buf[4096];
   while (true) {
-    ssize_t n = ::recv(fd, buf, sizeof(buf), 0);
+    ssize_t n = ::recv(fd_, buf, sizeof(buf), 0);
     if (n > 0) {
       if (read_buf.size() + static_cast<std::size_t>(n) > kMaxReadBuffer) {
         return false;  // too large
@@ -48,7 +48,7 @@ bool Connection::read_from_socket() {
 
 bool Connection::flush_write() { // send replies
   while (!write_buf.empty()) {
-    ssize_t n = ::send(fd, write_buf.data(), write_buf.size(), 0);
+    ssize_t n = ::send(fd_, write_buf.data(), write_buf.size(), 0);
     if (n > 0) {
       write_buf.erase(0, static_cast<std::size_t>(n));
       continue;

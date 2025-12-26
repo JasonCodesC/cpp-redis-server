@@ -11,6 +11,8 @@ import socket
 import string
 import threading
 import time
+from datetime import datetime
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -26,6 +28,7 @@ GET_RATIO = 0.4
 DEL_RATIO = 0.1
 EXISTS_RATIO = 0.05
 PIPELINE_DEPTH = 16
+DATA_DIR_NAME = "data"
 
 
 def encode_command(*parts: str) -> bytes:
@@ -199,6 +202,7 @@ def run_load(args):
   all_ops = sum(r.ops for r in results)
   all_errors = sum(r.errors for r in results)
   latencies = [l for r in results for l in r.latencies_ms]
+  write_latencies(latencies)
 
   print(f"Server: {HOST}:{PORT}")
   print(f"Completed ops: {all_ops}, errors: {all_errors}, elapsed: {elapsed:.3f}s")
@@ -208,6 +212,16 @@ def run_load(args):
     for label, val in [("p50", pct(latencies, 50)), ("p95", pct(latencies, 95)), ("p99", pct(latencies, 99))]:
       if val is not None:
         print(f"{label}: {val:.2f} ms")
+
+def write_latencies(latencies: List[float]) -> None:
+  root = Path(__file__).resolve().parent.parent
+  data_dir = root / DATA_DIR_NAME
+  data_dir.mkdir(parents=True, exist_ok=True)
+  stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+  path = data_dir / f"latencies-{stamp}.txt"
+  with path.open("w", encoding="utf-8") as f:
+    for value in latencies:
+      f.write(f"{value:.6f}\n")
 
 
 if __name__ == "__main__":

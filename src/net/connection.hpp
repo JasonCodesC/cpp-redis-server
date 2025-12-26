@@ -17,8 +17,8 @@ class Connection {
   Connection(const Connection&) = delete;
   Connection& operator=(const Connection&) = delete;
 
-  int fd() const { return fd; }
-  bool closed() const { return fd == -1; }
+  int fd() const { return fd_; }
+  bool closed() const { return fd_ == -1; }
   bool wants_write() const { return !write_buf.empty(); }
 
   // Returns false to indicate the connection should be closed.
@@ -34,7 +34,7 @@ class Connection {
   static constexpr std::size_t kMaxReadBuffer = 1 << 20;   // 1MB
   static constexpr std::size_t kMaxWriteBuffer = 1 << 20;  // 1MB
 
-  int fd;
+  int fd_;
   std::string read_buf;
   std::string write_buf;
   resp::RespParser parser;
