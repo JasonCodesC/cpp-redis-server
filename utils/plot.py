@@ -33,7 +33,7 @@ def read_latencies(path: Path) -> list[float]:
 
 
 def list_latency_files(data_dir: Path) -> list[Path]:
-  return sorted(data_dir.glob("latencies-*.txt"))
+  return sorted(data_dir.glob("V*.txt"))
 
 
 def plot_hist(ax, values: list[float], title: str, bins: int, log_y: bool) -> None:

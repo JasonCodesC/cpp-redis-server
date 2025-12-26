@@ -1,15 +1,5 @@
 
 
-todo
-
-speed up
-
-cpu pin
-
-
-
-
-
 V1:
 
 2 mill ops:
@@ -62,7 +52,7 @@ Completed ops: 19999998, errors: 0, elapsed: 127.207s
 Throughput: 157223.9 ops/sec
 p50: 0.28 ms
 p95: 0.52 ms
-p99: 0.67 ms
+p99: 0.68 ms
 
 V2:
 
@@ -78,8 +68,76 @@ handle_set is taking up 2.2% of the cpu and half of that is due to db::store::se
 
 the last notable time sink is parse, which is taking up 1.81% of cpu time and that is dominated by calls of parse_integer. This is because we are doing two passes, one to find the terminator and then from_chars() to scan the digits again. We can change this to a single pass to cut down even more. We can also avoid creating a string_view object and parse directly from the buffer data.
 
+2 Mill Ops:
 
-V3:
+Run 1:
+
+Completed ops: 1999998, errors: 0, elapsed: 13.015s
+Throughput: 153674.0 ops/sec
+p50: 0.28 ms
+p95: 0.53 ms
+p99: 0.68 ms
+
+Run 2:
+
+Server: 192.168.37.128:9000
+Completed ops: 1999998, errors: 0, elapsed: 13.136s
+Throughput: 152255.5 ops/sec
+p50: 0.29 ms
+p95: 0.54 ms
+p99: 0.69 ms
+
+Run 3:
+
+Completed ops: 1999998, errors: 0, elapsed: 13.311s
+Throughput: 150247.5 ops/sec
+p50: 0.29 ms
+p95: 0.54 ms
+p99: 0.70 ms
+
+
+
+20 Mill Ops:
+
+Run 1:
+
+Completed ops: 19999998, errors: 0, elapsed: 129.296s
+Throughput: 154683.9 ops/sec
+p50: 0.28 ms
+p95: 0.52 ms
+p99: 0.66 ms
+
+Run 2:
+
+Completed ops: 19999998, errors: 0, elapsed: 129.024s
+Throughput: 155010.3 ops/sec
+p50: 0.28 ms
+p95: 0.52 ms
+p99: 0.66 ms
+
+Run 3:
+
+Completed ops: 19999998, errors: 0, elapsed: 128.587s
+Throughput: 155536.8 ops/sec
+p50: 0.28 ms
+p95: 0.52 ms
+p99: 0.67 ms
+
+
+
+
+200 Mill Ops:
+
+Only 1 Run:
+
+Completed ops: 199999998, errors: 0, elapsed: 1278.375s
+Throughput: 156448.6 ops/sec
+p50: 0.28 ms
+p95: 0.52 ms
+p99: 0.66 ms
+
+
+
 
 
 

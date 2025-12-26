@@ -19,7 +19,7 @@ from typing import List, Optional
 # Hardcoded client/server settings (no CLI flags needed).
 HOST = "192.168.37.128"
 PORT = 9000
-TOTAL_OPS = 20_000_000
+TOTAL_OPS = 200_000_000
 CONCURRENCY = 3
 KEYSPACE_SIZE = 1000
 VALUE_LEN = 16
