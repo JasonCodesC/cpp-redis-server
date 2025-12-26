@@ -47,10 +47,16 @@ bool Connection::read_from_socket() {
 }
 
 bool Connection::flush_write() { // send replies
-  while (!write_buf.empty()) {
-    ssize_t n = ::send(fd_, write_buf.data(), write_buf.size(), 0);
+  while (pending_write_bytes() > 0) {
+    const char* data = write_buf.data() + write_offset;
+    const std::size_t len = pending_write_bytes();
+    ssize_t n = ::send(fd_, data, len, 0);
     if (n > 0) {
-      write_buf.erase(0, static_cast<std::size_t>(n));
+      write_offset += static_cast<std::size_t>(n);
+      if (write_offset == write_buf.size()) {
+        write_buf.clear();
+        write_offset = 0;
+      }
       continue;
     }
     if (n == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
@@ -70,9 +76,10 @@ bool Connection::on_read(const std::function<void(const std::vector<std::string_
   }
 
   while (parser.parse(read_buf)) {
+    maybe_compact_write_buf();
     dispatch(parser.argv(), write_buf);
     parser.consume(read_buf);
-    if (write_buf.size() > kMaxWriteBuffer) {
+    if (pending_write_bytes() > kMaxWriteBuffer) {
       return false;  // backpressure failure
     }
   }
@@ -87,6 +94,20 @@ bool Connection::on_read(const std::function<void(const std::vector<std::string_
 
 bool Connection::on_write() {
   return flush_write();
+}
+
+void Connection::maybe_compact_write_buf() {
+  if (write_offset == 0) {
+    return;
+  }
+  if (write_offset >= 4096 && write_offset * 2 >= write_buf.size()) {
+    write_buf.erase(0, write_offset);
+    write_offset = 0;
+  }
+}
+
+std::size_t Connection::pending_write_bytes() const {
+  return write_buf.size() - write_offset;
 }
 
 }  // namespace net

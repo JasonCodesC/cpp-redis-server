@@ -2,6 +2,7 @@
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
 #include <iostream>
 #include <memory>
 #include <unordered_map>
@@ -13,9 +14,30 @@
 #include "net/socket.hpp"
 #include "util/error.hpp"
 
+#if defined(__linux__)
+#include <sched.h>
+#endif
+
+namespace {
+void pin_cpu_or_die() {
+#if defined(__linux__)
+  cpu_set_t set;
+  CPU_ZERO(&set);
+  CPU_SET(4, &set);
+  if (::sched_setaffinity(0, sizeof(set), &set) != 0) {
+    util::die_errno("sched_setaffinity");
+  }
+#else
+  util::die("CPU pinning is only supported on Linux");
+#endif
+}
+}  // namespace
+
 int main() {
   std::cout << "Redis Started \n";
   uint16_t port = 9000;
+
+  pin_cpu_or_die();
 
   int listen_fd = net::create_listen_socket(port);
   net::Epoll epoll;

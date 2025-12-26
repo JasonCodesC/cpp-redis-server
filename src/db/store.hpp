@@ -2,6 +2,7 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 
 #include "../util/time.hpp"
@@ -10,7 +11,7 @@ namespace db {
 
 class Store {
  public:
-  std::optional<std::string> get(const std::string& key);
+  std::optional<std::string_view> get(const std::string& key);
   void set(const std::string& key, const std::string& value);
   bool del(const std::string& key);
   bool exists(const std::string& key);

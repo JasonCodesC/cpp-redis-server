@@ -19,15 +19,16 @@ from typing import List, Optional
 # Hardcoded client/server settings (no CLI flags needed).
 HOST = "192.168.37.128"
 PORT = 9000
-TOTAL_OPS = 200_000
-CONCURRENCY = 50
-KEYSPACE_SIZE = 200
+TOTAL_OPS = 20_000_000
+CONCURRENCY = 3
+KEYSPACE_SIZE = 1000
 VALUE_LEN = 16
 SET_RATIO = 0.4
 GET_RATIO = 0.4
 DEL_RATIO = 0.1
 EXISTS_RATIO = 0.05
 PIPELINE_DEPTH = 16
+READ_BUF_SIZE = 4096
 DATA_DIR_NAME = "data"
 
 
@@ -41,56 +42,63 @@ def encode_command(*parts: str) -> bytes:
   return b"".join(out)
 
 
-def recv_exact(sock: socket.socket, n: int) -> bytes:
-  data = bytearray()
-  while len(data) < n:
-    chunk = sock.recv(n - len(data))
-    if not chunk:
-      raise ConnectionError("socket closed while reading")
-    data.extend(chunk)
-  return bytes(data)
+class RespReader:
+  def __init__(self, sock: socket.socket, bufsize: int = READ_BUF_SIZE) -> None:
+    self.sock = sock
+    self.bufsize = bufsize
+    self.buffer = bytearray()
 
+  def _fill(self, n: int) -> None:
+    while len(self.buffer) < n:
+      chunk = self.sock.recv(self.bufsize)
+      if not chunk:
+        raise ConnectionError("socket closed while reading")
+      self.buffer.extend(chunk)
 
-def read_line(sock: socket.socket) -> bytes:
-  buf = bytearray()
-  while True:
-    ch = sock.recv(1)
-    if not ch:
-      raise ConnectionError("socket closed while reading line")
-    buf.extend(ch)
-    if len(buf) >= 2 and buf[-2:] == b"\r\n":
-      return bytes(buf[:-2])
-
-
-def read_resp(sock: socket.socket):
-  """Minimal RESP reader for simple/bulk/int responses."""
-  prefix = sock.recv(1)
-  if not prefix:
-    raise ConnectionError("socket closed before response prefix")
-
-  if prefix == b"+" or prefix == b"-":
-    line = read_line(sock)
-    return line.decode()
-  if prefix == b":":
-    line = read_line(sock)
-    return int(line)
-  if prefix == b"$":
-    length_line = read_line(sock)
-    length = int(length_line)
-    if length == -1:
-      return None
-    data = recv_exact(sock, length)
-    recv_exact(sock, 2)  # trailing CRLF
+  def _read_exact(self, n: int) -> bytes:
+    self._fill(n)
+    data = bytes(self.buffer[:n])
+    del self.buffer[:n]
     return data
-  if prefix == b"*":
-    # Simple array handling for future expansion; not heavily used here.
-    length_line = read_line(sock)
-    length = int(length_line)
-    if length == -1:
-      return None
-    return [read_resp(sock) for _ in range(length)]
 
-  raise ValueError(f"unknown RESP prefix {prefix!r}")
+  def _read_line(self) -> bytes:
+    while True:
+      idx = self.buffer.find(b"\r\n")
+      if idx != -1:
+        line = bytes(self.buffer[:idx])
+        del self.buffer[:idx + 2]
+        return line
+      chunk = self.sock.recv(self.bufsize)
+      if not chunk:
+        raise ConnectionError("socket closed while reading line")
+      self.buffer.extend(chunk)
+
+  def read_resp(self):
+    """Minimal RESP reader for simple/bulk/int responses."""
+    prefix = self._read_exact(1)
+    if prefix == b"+" or prefix == b"-":
+      line = self._read_line()
+      return line.decode()
+    if prefix == b":":
+      line = self._read_line()
+      return int(line)
+    if prefix == b"$":
+      length_line = self._read_line()
+      length = int(length_line)
+      if length == -1:
+        return None
+      data = self._read_exact(length)
+      self._read_exact(2)  # trailing CRLF
+      return data
+    if prefix == b"*":
+      # Simple array handling for future expansion; not heavily used here.
+      length_line = self._read_line()
+      length = int(length_line)
+      if length == -1:
+        return None
+      return [self.read_resp() for _ in range(length)]
+
+    raise ValueError(f"unknown RESP prefix {prefix!r}")
 
 
 def random_value(length: int) -> str:
@@ -126,6 +134,7 @@ def worker_thread(cfg: WorkerConfig, result: WorkerResult):
   except OSError:
     result.errors += 1
     return
+  reader = RespReader(sock)
   pending: List[float] = []
   sent = 0
   completed = 0
@@ -157,7 +166,7 @@ def worker_thread(cfg: WorkerConfig, result: WorkerResult):
 
       # Drain one response per loop to keep ordering.
       try:
-        read_resp(sock)
+        reader.read_resp()
         start_time = pending.pop(0)
       except Exception:
         result.errors += 1

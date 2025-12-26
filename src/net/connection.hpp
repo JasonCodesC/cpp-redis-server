@@ -19,7 +19,7 @@ class Connection {
 
   int fd() const { return fd_; }
   bool closed() const { return fd_ == -1; }
-  bool wants_write() const { return !write_buf.empty(); }
+  bool wants_write() const { return pending_write_bytes() > 0; }
 
   // Returns false to indicate the connection should be closed.
   bool on_read(const std::function<void(const std::vector<std::string_view>&, std::string&)>& dispatch);
@@ -30,6 +30,8 @@ class Connection {
  private:
   bool read_from_socket();
   bool flush_write();
+  void maybe_compact_write_buf();
+  std::size_t pending_write_bytes() const;
 
   static constexpr std::size_t kMaxReadBuffer = 1 << 20;   // 1MB
   static constexpr std::size_t kMaxWriteBuffer = 1 << 20;  // 1MB
@@ -37,6 +39,7 @@ class Connection {
   int fd_;
   std::string read_buf;
   std::string write_buf;
+  std::size_t write_offset{0};
   resp::RespParser parser;
 };
 

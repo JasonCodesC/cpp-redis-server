@@ -113,7 +113,7 @@ void Dispatcher::handle_get(const std::vector<std::string_view>& args, std::stri
     return;
   }
   auto val = store.get(std::string(args[1]));
-  resp::append_string(out, val ? std::optional<std::string_view>(*val) : std::nullopt);
+  resp::append_string(out, val);
 }
 
 void Dispatcher::handle_del(const std::vector<std::string_view>& args, std::string& out) {

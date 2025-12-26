@@ -2,14 +2,19 @@
 
 namespace db {
 
-std::optional<std::string> Store::get(const std::string& key) {
+std::optional<std::string_view> Store::get(const std::string& key) {
   auto it = kv.find(key);
   if (it == kv.end()) {
     return std::nullopt;
   }
-  if (is_expired(key, util::now())) {
+  auto exp_it = expires.find(key);
+  if (exp_it == expires.end()) {
+    return it->second;
+  }
+  auto now = util::now();
+  if (exp_it->second <= now) {
     kv.erase(it);
-    expires.erase(key);
+    expires.erase(exp_it);
     return std::nullopt;
   }
   return it->second;
