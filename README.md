@@ -74,14 +74,14 @@ From there I saw on_read was very slow with its children taking up 18.89% CPU ti
 
 handle_get is taking up 3.75% cpu time with db::store::get taking up the majority of that and 1.55% of that is steady_clock::now and the other is a hash table. The other part of handle get thats slow is append_string. To improve this I changed from calling steady_clock::now() on every GET and only call it now if it is in expires. I also now changed Store::get to return std::optional<std::string_view> rather than std::optional<std::string> to avoid copies. And to speed up append string I replaced std::to_string with std::to_chars so we can avoid expensive heap allocation and just keep stuff on the stack.
 
-handle_set is taking up 2.2% of the cpu and half of that is due to db::store::set while the other half is free (a syscall). To cut down on both of these we can use std::pmr::unordered_map and string which lets us use a custom allocator using a memory pool rather than new and delete along with using std::move instead of copying. 
-Swapped the store to use std::pmr::unordered_map + std::pmr::string with an unsynchronized pool, plus std::move on inserts to reduce allocation/copy overhead in SET. Also shifted Store APIs to std::string_view so the dispatcher can pass RESP args without extra string copies.
+handle_set is taking up 2.2% of the cpu and half of that is due to db::store::set while the other half is free (a syscall). To cut down on this we can use std::move on inserts to reduce allocation/copy overhead in SET. Also shifted Store APIs to std::string_view so the dispatcher can pass RESP args without extra string copies.
 
 the last notable time sink is parse, which is taking up 1.81% of cpu time and that is dominated by calls of parse_integer. This is because we are doing two passes, one to find the terminator and then from_chars() to scan the digits again. We can change this to a single pass to cut down even more. We can also avoid creating a string_view object and parse directly from the buffer data.
 
 
+V3:
 
-fix perf stat permissions
+
 
 
 

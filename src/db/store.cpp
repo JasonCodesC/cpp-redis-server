@@ -4,8 +4,6 @@
 
 namespace db {
 
-Store::Store() : kv(&pool), expires(&pool) {}
-
 std::optional<std::string_view> Store::get(std::string_view key) {
   auto it = kv.find(key);
   if (it == kv.end()) {
@@ -24,11 +22,9 @@ std::optional<std::string_view> Store::get(std::string_view key) {
   return it->second;
 }
 
-void Store::set(std::string_view key, std::string_view value) {
-  std::pmr::string key_pmr(key, &pool);
-  std::pmr::string value_pmr(value, &pool);
-  kv.insert_or_assign(std::move(key_pmr), std::move(value_pmr));
+void Store::set(std::string key, std::string value) {
   remove_expiration(key);
+  kv.insert_or_assign(std::move(key), std::move(value));
 }
 
 bool Store::del(std::string_view key) {
@@ -72,7 +68,7 @@ bool Store::expire(std::string_view key, long long ttl_ms) {
   if (exp_it != expires.end()) {
     exp_it->second = deadline;
   } else {
-    expires.emplace(std::pmr::string(key, &pool), deadline);
+    expires.emplace(std::string(key), deadline);
   }
   return true;
 }

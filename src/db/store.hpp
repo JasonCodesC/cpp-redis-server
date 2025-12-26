@@ -1,6 +1,5 @@
 #pragma once
 
-#include <memory_resource>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -26,10 +25,8 @@ struct TransparentStringEq {
 
 class Store {
  public:
-  Store();
-
   std::optional<std::string_view> get(std::string_view key);
-  void set(std::string_view key, std::string_view value);
+  void set(std::string key, std::string value);
   bool del(std::string_view key);
   bool exists(std::string_view key);
 
@@ -44,10 +41,8 @@ class Store {
  private:
   void remove_expiration(std::string_view key);
 
-  std::pmr::unsynchronized_pool_resource pool;
-  using PmrString = std::pmr::string;
-  using KvMap = std::pmr::unordered_map<PmrString, PmrString, TransparentStringHash, TransparentStringEq>;
-  using ExpMap = std::pmr::unordered_map<PmrString, util::TimePoint, TransparentStringHash, TransparentStringEq>;
+  using KvMap = std::unordered_map<std::string, std::string, TransparentStringHash, TransparentStringEq>;
+  using ExpMap = std::unordered_map<std::string, util::TimePoint, TransparentStringHash, TransparentStringEq>;
   KvMap kv;
   ExpMap expires;
 };

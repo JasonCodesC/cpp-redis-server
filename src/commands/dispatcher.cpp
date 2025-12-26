@@ -103,7 +103,7 @@ void Dispatcher::handle_set(const std::vector<std::string_view>& args, std::stri
     resp::append_error(out, "ERR wrong number of arguments for 'set'");
     return;
   }
-  store.set(args[1], args[2]);
+  store.set(std::string(args[1]), std::string(args[2]));
   resp::append_ok(out);
 }
 
