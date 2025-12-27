@@ -37,7 +37,7 @@ bool parse_ll(std::string_view s, long long& out) {
   auto [ptr, ec] = std::from_chars(begin, end, out);
   return ec == std::errc() && ptr == end;
 }
-}  // namespace
+} // commands namespace
 
 void Dispatcher::dispatch(const std::vector<std::string_view>& args, std::string& out) {
   if (args.empty()) {

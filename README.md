@@ -1,146 +1,77 @@
+# Mini Redis-ish Server
 
+## Overview
+This project is a Redis-style key/value server written in modern C++ with nonblocking TCP, epoll, and RESP parsing. It keeps a simple in-memory store with optional expirations, a command dispatcher (SET/GET/DEL/EXISTS/EXPIRE/TTL/PING/ECHO), and a small Python load generator to measure throughput/latency. Optimizations were guided by perf and timing data.
 
-V1:
+## System Design
+- **Network:** Nonblocking `accept4` + epoll; per-connection read/write buffers; backpressure by toggling `EPOLLOUT` only when writes are queued.
+- **Protocol:** Streaming RESP array-of-bulk parser; RESP encoder helpers for status, bulk strings, integers, arrays.
+- **Store:** `unordered_map` for keys, optional expirations using `steady_clock`; lazy expiry on access plus sweep hook.
+- **Commands:** Dispatcher maps argv → handlers; minimal allocations via `string_view` plumbing.
+- **Client load:** Python driver sends a pipelined mix of SET/GET/DEL/EXISTS/PING over TCP to a fixed keyspace, records throughput and p50/p95/p99 latencies.
 
-2 mill ops:
+## File Structure
+```
+redis_engine
+├── makefile                            # builds kvserv
+├── src
+│   ├── main.cpp                        # epoll loop, accept/read/write wiring
+│   ├── commands/dispatcher.            # command handlers
+│   ├── db/store.*                      # in-memory KV + expirations
+│   ├── net/{socket,epoll,connection}.  # sockets/epoll/per-connection buffers
+│   ├── protocol/{resp,resp_parser}.    # RESP encoder/parser
+│   └── util/{error,time}.hpp           # helpers
+├── client/runner.py                    # load generator (pipelined RESP client)
+├── utils/redis.sh                      # build+run server
+├── utils/client.sh                     # run client load
+└── data, plots                         # experiment outputs
+```
 
-Run 1:
+## How to Run
+From repo root:
+```
+# server (hardcoded to listen on port 9000)
+./utils/redis.sh
 
-Completed ops: 1999998, errors: 0, elapsed: 14.166s
-Throughput: 141186.2 ops/sec
-p50: 0.31 ms
-p95: 0.59 ms
-p99: 0.77 ms
+# client load (hardcoded host 192.168.37.1, port 9000)
+./utils/client.sh
+```
 
-Run 2:
+## Profiling & Optimizations (V2)
+- **on_write (~67% of CPU):** dominated by kernel `__send()`; not much to squeeze here beyond batching and avoiding extra wakeups.
+- **on_read (~19%):** half in `recv` (syscall), but inside it:
+  - **handle_get (~3.8%):** most time in `db::store::get`, with ~1.6% in `steady_clock::now` and the rest in hash lookup and also saw RESP string encoding overhead. Fixes: only call `now()` when the key has an expiry; make `get` return `std::optional<string_view>` to avoid copies alongisde swapping RESP `to_string` for `to_chars` to stay on-stack.
+  - **handle_set (~2.2%):** split between `db::store::set` and `free` from allocations. Fixes: move semantics on inserts and pass `string_view` through dispatcher→store to avoid extra allocations.
+  - **parse (~1.8%):** two-pass integer parsing (find terminator then `from_chars`). Fix: single-pass parsing over the buffer rather than the double pass and avoid transient `string_view` construction.
+- **CPU pinning:** pin server threads during tests to reduce cpu-migration to 0 (shown via perf stats).
 
-Completed ops: 1999998, errors: 0, elapsed: 14.106s
-Throughput: 141787.9 ops/sec
-p50: 0.30 ms
-p95: 0.59 ms
-p99: 0.77 ms
+## Results (client-perspective latency/throughput)
+Client uses pipelined requests (depth 16) over TCP with a keyspace=200, Averages exclude the single 200M run as that was only run once compared to the others being run three times. Errors were 0 in all runs.
 
-Run 3:
+### V1 (baseline)
+| Workload | Avg elapsed (s) | Avg throughput (ops/s) | p50 (ms) | p95 (ms) | p99 (ms) |
+|:--|--:|--:|--:|--:|--:|
+| 2M ops (avg of 3)  | 14.163 | 141,218 | 0.31 | 0.59 | 0.76 |
+| 20M ops (avg of 3) | 129.372 | 154,662 | 0.28 | 0.53 | 0.69 |
 
-Completed ops: 1999998, errors: 0, elapsed: 14.217s
-Throughput: 140680.7 ops/sec
-p50: 0.31 ms
-p95: 0.58 ms
-p99: 0.75 ms
+### V2 (optimized)
+| Workload | Avg elapsed (s) | Avg throughput (ops/s) | p50 (ms) | p95 (ms) | p99 (ms) |
+|:--|--:|--:|--:|--:|--:|
+| 2M ops (avg of 3)  | 13.154 | 152,059 | 0.29 | 0.54 | 0.69 |
+| 20M ops (avg of 3) | 128.969 | 155,077 | 0.28 | 0.52 | 0.66 |
+| 200M ops (single)  | 1278.375 | 156,449 | 0.28 | 0.52 | 0.66 |
 
-20 mill ops:
+### Speedups and Latency Reductions vs V1 (averages)
+| Workload | Throughput speedup | p50 delta | p95 delta | p99 delta |
+|:--|--:|--:|--:|--:|
+| 2M ops  | 1.08x | 0.02 ms | 0.05 ms | 0.07 ms |
+| 20M ops | 1.01x |  0.00 ms | 0.01 ms | 0.03 ms |
 
-Run 1:
+## Architecture Recap
+- Listener on `AF_INET` TCP, nonblocking; `EPOLLIN` for reads, `EPOLLOUT` toggled when write buffer non-empty.
+- Per-connection buffers + RESP parser to extract argv; dispatcher writes RESP replies; backpressure via bounded buffers.
+- Store with optional expirations; lazy cleanup on access; TTL/EXPIRE commands mapped directly to deadlines.
+- Client load emphasizes realistic pressure: fixed keyspace to maintain hit rate, pipelining to simulate in-flight ops, client-perceived latency as primary SLO.
 
-Completed ops: 19999998, errors: 0, elapsed: 133.265s
-Throughput: 150077.2 ops/sec
-p50: 0.29 ms
-p95: 0.55 ms
-p99: 0.72 ms
-
-Run 2:
-
-Completed ops: 19999998, errors: 0, elapsed: 127.645s
-Throughput: 156684.1 ops/sec
-p50: 0.28 ms
-p95: 0.53 ms
-p99: 0.68 ms
-
-Run 3:
-
-Completed ops: 19999998, errors: 0, elapsed: 127.207s
-Throughput: 157223.9 ops/sec
-p50: 0.28 ms
-p95: 0.52 ms
-p99: 0.68 ms
-
-V2:
-
-First optimization CPU pinning
-
-Second used perf record and report and found that on_write was very slow with its children using 67% (lol) of CPU time. Within this all but 0.4% was __send() which we can't really improve bc this is a syscall. 
-
-From there I saw on_read was very slow with its children taking up 18.89% CPU time, half of which was recv (another syscall). But within that ----> 
-
-handle_get is taking up 3.75% cpu time with db::store::get taking up the majority of that and 1.55% of that is steady_clock::now and the other is a hash table. The other part of handle get thats slow is append_string. To improve this I changed from calling steady_clock::now() on every GET and only call it now if it is in expires. I also now changed Store::get to return std::optional<std::string_view> rather than std::optional<std::string> to avoid copies. And to speed up append string I replaced std::to_string with std::to_chars so we can avoid expensive heap allocation and just keep stuff on the stack.
-
-handle_set is taking up 2.2% of the cpu and half of that is due to db::store::set while the other half is free (a syscall). To cut down on this we can use std::move on inserts to reduce allocation/copy overhead in SET. Also shifted Store APIs to std::string_view so the dispatcher can pass RESP args without extra string copies.
-
-the last notable time sink is parse, which is taking up 1.81% of cpu time and that is dominated by calls of parse_integer. This is because we are doing two passes, one to find the terminator and then from_chars() to scan the digits again. We can change this to a single pass to cut down even more. We can also avoid creating a string_view object and parse directly from the buffer data.
-
-2 Mill Ops:
-
-Run 1:
-
-Completed ops: 1999998, errors: 0, elapsed: 13.015s
-Throughput: 153674.0 ops/sec
-p50: 0.28 ms
-p95: 0.53 ms
-p99: 0.68 ms
-
-Run 2:
-
-Server: 192.168.37.128:9000
-Completed ops: 1999998, errors: 0, elapsed: 13.136s
-Throughput: 152255.5 ops/sec
-p50: 0.29 ms
-p95: 0.54 ms
-p99: 0.69 ms
-
-Run 3:
-
-Completed ops: 1999998, errors: 0, elapsed: 13.311s
-Throughput: 150247.5 ops/sec
-p50: 0.29 ms
-p95: 0.54 ms
-p99: 0.70 ms
-
-
-
-20 Mill Ops:
-
-Run 1:
-
-Completed ops: 19999998, errors: 0, elapsed: 129.296s
-Throughput: 154683.9 ops/sec
-p50: 0.28 ms
-p95: 0.52 ms
-p99: 0.66 ms
-
-Run 2:
-
-Completed ops: 19999998, errors: 0, elapsed: 129.024s
-Throughput: 155010.3 ops/sec
-p50: 0.28 ms
-p95: 0.52 ms
-p99: 0.66 ms
-
-Run 3:
-
-Completed ops: 19999998, errors: 0, elapsed: 128.587s
-Throughput: 155536.8 ops/sec
-p50: 0.28 ms
-p95: 0.52 ms
-p99: 0.67 ms
-
-
-
-
-200 Mill Ops:
-
-Only 1 Run:
-
-Completed ops: 199999998, errors: 0, elapsed: 1278.375s
-Throughput: 156448.6 ops/sec
-p50: 0.28 ms
-p95: 0.52 ms
-p99: 0.66 ms
-
-
-
-
-
-
-
-
-
+## Final Thoughts
+Built a compact, performant Redis-like server with clear layering and measurable gains from profiling-led tweaks. Future work: richer command set, RESP3, finer-grained server-side metrics, and configurable binding per interface.
