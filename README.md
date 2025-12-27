@@ -37,7 +37,7 @@ From repo root:
 ./utils/client.sh
 ```
 
-## Profiling & Optimizations (V2)
+## Profiling & Optimizations (V2) With perf
 - **on_write (~67% of CPU):** dominated by kernel `__send()`; not much to squeeze here beyond batching and avoiding extra wakeups.
 - **on_read (~19%):** half in `recv` (syscall), but inside it:
   - **handle_get (~3.8%):** most time in `db::store::get`, with ~1.6% in `steady_clock::now` and the rest in hash lookup and also saw RESP string encoding overhead. Fixes: only call `now()` when the key has an expiry; make `get` return `std::optional<string_view>` to avoid copies alongisde swapping RESP `to_string` for `to_chars` to stay on-stack.
@@ -61,11 +61,21 @@ Client uses pipelined requests (depth 16) over TCP with a keyspace=200, Averages
 | 20M ops (avg of 3) | 128.969 | 155,077 | 0.28 | 0.52 | 0.66 |
 | 200M ops (single)  | 1278.375 | 156,449 | 0.28 | 0.52 | 0.66 |
 
+Also note that the server scales very well under load.
+
 ### Speedups and Latency Reductions vs V1 (averages)
 | Workload | Throughput speedup | p50 delta | p95 delta | p99 delta |
 |:--|--:|--:|--:|--:|
-| 2M ops  | 1.08x | 0.02 ms | 0.05 ms | 0.07 ms |
-| 20M ops | 1.01x |  0.00 ms | 0.01 ms | 0.03 ms |
+| 2M ops  | 1.08x | -0.02 ms | -0.05 ms | -0.07 ms |
+| 20M ops | 1.01x |  0.00 ms | -0.01 ms | -0.03 ms |
+
+### Plots
+- V1 2M: ![V1 2M](plots/V1-2Mill-Ops.png)
+- V1 20M: ![V1 20M](plots/V1-20Mill-Ops.png)
+- V2 2M: ![V2 2M](plots/V2-2Mill-Ops.png)
+- V2 20M: ![V2 20M](plots/V2-20-MillOps.png)
+- V2 200M: ![V2 200M](plots/V2-200MillOps.png)
+
 
 ## Architecture Recap
 - Listener on `AF_INET` TCP, nonblocking; `EPOLLIN` for reads, `EPOLLOUT` toggled when write buffer non-empty.
@@ -73,5 +83,6 @@ Client uses pipelined requests (depth 16) over TCP with a keyspace=200, Averages
 - Store with optional expirations; lazy cleanup on access; TTL/EXPIRE commands mapped directly to deadlines.
 - Client load emphasizes realistic pressure: fixed keyspace to maintain hit rate, pipelining to simulate in-flight ops, client-perceived latency as primary SLO.
 
-## Final Thoughts
-Built a compact, performant Redis-like server with clear layering and measurable gains from profiling-led tweaks. Future work: richer command set, RESP3, finer-grained server-side metrics, and configurable binding per interface.
+## Author:
+
+Jason Majoros
